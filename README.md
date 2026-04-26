@@ -36,12 +36,6 @@ Consider reducing CPU requests in your workflow or using a node with more resour
 - Comprehensive logging of pod manifests and container resources
 - Redacted sensitive values in environment variables from logs
 
-## Features
-
-- **Kubernetes Hook**: Dynamically spin up Kubernetes pods to run jobs, with enhanced error diagnostics
-- **Docker Hook**: Extend the GitHub Actions runner's Docker capabilities
-- **Hooklib**: Shared TypeScript utilities and interfaces
-
 ## Container Image
 
 Pre-built images available on GitHub Container Registry:
@@ -52,11 +46,11 @@ ghcr.io/echohello-dev/runner-container-hooks:latest
 
 Multi-platform: `linux/amd64`, `linux/arm64`
 
-## Using with Actions Runner Controller (ARC)
+## Installation Methods
 
-### Option 1: Use Pre-built Image with AutoscalingRunnerSet
+### Option 1: Init Container (Recommended for production)
 
-The modern ARC uses `actions.github.com/v1alpha1` API (Runner Scale Sets):
+The cleanest approach - uses an init container to copy hooks from the published image to a volume mount. No need to modify your runner image.
 
 ```yaml
 apiVersion: actions.github.com/v1alpha1
@@ -70,12 +64,10 @@ spec:
   minRunners: 0
   template:
     spec:
-      containerSecurityContext:
-        allowPrivilegeEscalation: false
       initContainers:
-        - name: hook-installer
+        - name: install-hooks
           image: ghcr.io/echohello-dev/runner-container-hooks:latest
-          command: ['sh', '-c', 'cp -r /opt/hooks/* /hooks/']
+          command: ['sh', '-c', 'cp -r /home/runner/k8s/* /hooks/']
           volumeMounts:
             - name: runner-hooks
               mountPath: /hooks
@@ -85,7 +77,7 @@ spec:
           command: ['/home/runner/run.sh']
           env:
             - name: ACTIONS_RUNNER_CONTAINER_HOOKS
-              value: /home/runner/k8s/index.js
+              value: /hooks/index.js
             - name: ACTIONS_RUNNER_POD_NAME
               valueFrom:
                 fieldRef:
@@ -94,7 +86,7 @@ spec:
               value: "true"
           volumeMounts:
             - name: runner-hooks
-              mountPath: /home/runner/k8s
+              mountPath: /hooks
             - name: work
               mountPath: /home/runner/_work
       volumes:
@@ -110,9 +102,119 @@ spec:
                     storage: 10Gi
 ```
 
-### Option 2: Use Pre-built Image with RunnerSet (Legacy)
+### Option 2: Volume Mount from ConfigMap
 
-For the older `actions.summerwind.dev/v1alpha1` API:
+For development or when you want to quickly test changes without rebuilding images:
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: runner-container-hooks
+  namespace: actions-runner
+data:
+  index.js: |
+    module.exports = require('./lib/src/index.js')
+  lib.src.index.js: |
+    // hook content here
+  lib.src.hooks.prepare-job.js: |
+    // hook content here
+---
+apiVersion: actions.github.com/v1alpha1
+kind: AutoscalingRunnerSet
+# ... rest of config with volumes referencing ConfigMap
+```
+
+### Option 3: COPY from Image in Dockerfile
+
+If you prefer to bake the hooks into your runner image:
+
+```dockerfile
+# Dockerfile
+FROM ghcr.io/actions/actions-runner:latest
+
+# Copy k8s container hooks
+COPY --from=ghcr.io/echohello-dev/runner-container-hooks:latest /home/runner/k8s /home/runner/k8s
+
+# Or copy docker hooks
+COPY --from=ghcr.io/echohello-dev/runner-container-hooks:latest /home/runner/docker /home/runner/docker
+
+ENV ACTIONS_RUNNER_CONTAINER_HOOKS=/home/runner/k8s/index.js
+```
+
+### Option 4: Direct curl/wget download at startup
+
+For testing or temporary configurations:
+
+```yaml
+initContainers:
+  - name: download-hooks
+    image: curlimages/curl:latest
+    command: ['sh', '-c', 'curl -sfL https://github.com/echohello-dev/runner-container-hooks/releases/latest/download/k8s-index.js -o /hooks/index.js && chmod +x /hooks/index.js']
+    volumeMounts:
+      - name: runner-hooks
+        mountPath: /hooks
+```
+
+## Using with Actions Runner Controller (ARC)
+
+### Modern API: AutoscalingRunnerSet (actions.github.com/v1alpha1)
+
+The modern GitHub-managed scaling API:
+
+```yaml
+apiVersion: actions.github.com/v1alpha1
+kind: AutoscalingRunnerSet
+metadata:
+  name: actions-runner-set
+  namespace: actions-runner
+spec:
+  runnerScaleSetName: actions-runner-set
+  maxRunners: 10
+  minRunners: 0
+  template:
+    spec:
+      initContainers:
+        - name: install-hooks
+          image: ghcr.io/echohello-dev/runner-container-hooks:latest
+          command: ['sh', '-c', 'cp -r /home/runner/k8s/* /hooks/']
+          volumeMounts:
+            - name: runner-hooks
+              mountPath: /hooks
+      containers:
+        - name: runner
+          image: ghcr.io/actions/actions-runner:latest
+          command: ['/home/runner/run.sh']
+          env:
+            - name: ACTIONS_RUNNER_CONTAINER_HOOKS
+              value: /hooks/index.js
+            - name: ACTIONS_RUNNER_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: ACTIONS_RUNNER_REQUIRE_JOB_CONTAINER
+              value: "true"
+          volumeMounts:
+            - name: runner-hooks
+              mountPath: /hooks
+            - name: work
+              mountPath: /home/runner/_work
+      volumes:
+        - name: runner-hooks
+          emptyDir: {}
+        - name: work
+          ephemeral:
+            volumeClaimTemplate:
+              spec:
+                accessModes: ["ReadWriteOnce"]
+                resources:
+                  requests:
+                    storage: 10Gi
+```
+
+### Legacy API: RunnerSet (actions.summerwind.dev/v1alpha1)
+
+For organizations still using the community-maintained ARC:
 
 ```yaml
 apiVersion: actions.summerwind.dev/v1alpha1
@@ -131,9 +233,16 @@ spec:
       containerMode:
         type: dind
       containerHooks:
-        path: /home/runner/k8s/index.js
-      image: ghcr.io/echohello-dev/runner-container-hooks:latest
+        path: /hooks/index.js
+      image: ghcr.io/actions/actions-runner:latest
       imagePullPolicy: Always
+      initContainers:
+        - name: install-hooks
+          image: ghcr.io/echohello-dev/runner-container-hooks:latest
+          command: ['sh', '-c', 'cp -r /home/runner/k8s/* /hooks/']
+          volumeMounts:
+            - name: runner-hooks
+              mountPath: /hooks
       env:
         - name: ACTIONS_RUNNER_POD_NAME
           valueFrom:
@@ -141,67 +250,9 @@ spec:
               fieldPath: metadata.name
         - name: ACTIONS_RUNNER_REQUIRE_JOB_CONTAINER
           value: "true"
-```
-
-### Option 3: Rebuild from Source with Customizations
-
-If you need to customize the hooks or add your own tooling:
-
-```dockerfile
-# Dockerfile.runner
-FROM ghcr.io/echohello-dev/runner-container-hooks:latest
-
-# Add your customizations here
-USER root
-RUN apt-get update && apt-get install -y \
-    kubectl \
-    helm \
-    && rm -rf /var/lib/apt/lists/*
-USER runner
-
-# Override the hooks directory if needed
-COPY custom-hooks/ /home/runner/k8s/
-```
-
-Build and push:
-
-```bash
-# Login to GHCR
-echo $GITHUB_TOKEN | docker login ghcr.io -u $GITHUB_ACTOR --password-stdin
-
-# Build and push
-docker build -t ghcr.io/YOUR_ORG/runner-container-hooks:custom .
-docker push ghcr.io/YOUR_ORG/runner-container-hooks:custom
-```
-
-### Option 4: Add Hooks to Existing RunnerDeployment
-
-If you already have ARC runners deployed (using `actions.summerwind.dev/v1alpha1`) and want to add these enhanced hooks:
-
-```yaml
-apiVersion: actions.summerwind.dev/v1alpha1
-kind: RunnerDeployment
-metadata:
-  name: actions-runner
-  namespace: actions-runner
-spec:
-  template:
-    spec:
-      env:
-        - name: ACTIONS_RUNNER_CONTAINER_HOOKS
-          value: /home/runner/k8s/index.js
-      initContainers:
-        - name: install-hooks
-          image: ghcr.io/echohello-dev/runner-container-hooks:latest
-          command: ['sh', '-c', 'mkdir -p /hooks && cp -r /opt/* /hooks/']
-          volumeMounts:
-            - name: runner-hooks
-              mountPath: /hooks
-      containers:
-        - name: runner
-          volumeMounts:
-            - name: runner-hooks
-              mountPath: /home/runner/k8s
+      volumeMounts:
+        - name: runner-hooks
+          mountPath: /hooks
       volumes:
         - name: runner-hooks
           emptyDir: {}
