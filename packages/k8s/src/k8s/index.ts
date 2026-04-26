@@ -458,7 +458,7 @@ export async function pruneSecrets(): Promise<void> {
 
   await Promise.all(
     secretList.body.items.map(
-      secret => secret.metadata?.name && deleteSecret(secret.metadata.name)
+      async secret => secret.metadata?.name ? deleteSecret(secret.metadata.name) : Promise.resolve()
     )
   )
 }
@@ -733,7 +733,7 @@ export async function prunePods(): Promise<void> {
 
   await Promise.all(
     podList.body.items.map(
-      pod => pod.metadata?.name && deletePod(pod.metadata.name)
+      async pod => pod.metadata?.name ? deletePod(pod.metadata.name) : Promise.resolve()
     )
   )
 }
