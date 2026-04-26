@@ -317,7 +317,6 @@ export async function execPodStep(
         }
       )
       // If exec.exec fails, explicitly reject the outer promise
-      // eslint-disable-next-line github/no-then
       .catch(e => reject(e))
   })
 }

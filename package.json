@@ -21,15 +21,15 @@
   "author": "",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/actions/runner-container-hooks/issues"
+    "url": "https://github.com/echohello-dev/runner-container-hooks/issues"
   },
-  "homepage": "https://github.com/actions/runner-container-hooks#readme",
+  "homepage": "https://github.com/echohello-dev/runner-container-hooks#readme",
   "devDependencies": {
     "@types/jest": "^29.5.11",
     "@types/node": "^20.10.5",
+    "@typescript-eslint/eslint-plugin": "^6.21.0",
     "@typescript-eslint/parser": "^6.21.0",
     "eslint": "^8.57.0",
-    "eslint-plugin-github": "^4.3.6",
     "eslint-plugin-jest": "^27.9.0",
     "jest": "^29.7.0",
     "prettier": "^2.6.2",
