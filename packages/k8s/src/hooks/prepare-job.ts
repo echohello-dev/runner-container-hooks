@@ -202,9 +202,9 @@ export async function prepareJob(
 
         // Mask sensitive information in environment variables
         if (safePodManifest.spec?.containers) {
-          for (const container of safePodManifest.spec.containers) {
-            if (container.env) {
-              for (const env of container.env) {
+          for (const c of safePodManifest.spec.containers) {
+            if (c.env) {
+              for (const env of c.env) {
                 // Mask potentially sensitive values
                 if (
                   env.name.includes('TOKEN') ||

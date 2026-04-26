@@ -48,8 +48,6 @@ export async function createContainer(
     }
   }
 
-  dockerArgs.push
-
   const mountVolumes = [
     ...(args.userMountVolumes || []),
     ...(args.systemMountVolumes || [])

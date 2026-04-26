@@ -633,7 +633,10 @@ async function getPodPhase(podName: string): Promise<PodPhase> {
  * @returns A promise that resolves to true if the job has succeeded.
  */
 async function isJobSucceeded(jobName: string): Promise<boolean> {
-  const { body: job } = await k8sBatchV1Api.readNamespacedJob(jobName, namespace())
+  const { body: job } = await k8sBatchV1Api.readNamespacedJob(
+    jobName,
+    namespace()
+  )
   if (job.status?.failed) {
     throw new Error(`job ${jobName} has failed`)
   }
@@ -672,30 +675,18 @@ export async function getPodLogs(
 
     // Use a properly configured read log operation with explicit parameters
     try {
-      // Set a short timeout since pod might be terminating
-      const opts = {
-        headers: { Accept: 'application/json, */*' },
-        timeout: 5000 // 5 second timeout
-      }
-
-      const logOptions = {
-        pretty: false,
-        tailLines: 100,
-        timestamps: true
-      }
-
       const response = await k8sApi.readNamespacedPodLog(
         podName,
         namespace(),
         containerName,
-        undefined, // container - already specified in 3rd arg
-        false, // follow
-        undefined, // limitBytes
-        undefined, // pretty - should be undefined, not boolean
-        undefined, // previous
-        undefined, // sinceSeconds
-        100, // tailLines
-        undefined // timestamps - should be undefined, not boolean
+        undefined,
+        false,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        100,
+        undefined
       )
 
       const body = response.body
@@ -1273,18 +1264,9 @@ export async function getPodDetails(podName: string): Promise<string> {
   // Try to get pod events separately - this might work even if the pod is gone
   try {
     const fieldSelector = `involvedObject.name=${podName}`
-    const timeoutMs = 5000 // Set a reasonable timeout
-
-    // Create options with a timeout
-    const opts = {
-      fieldSelector,
-      limit: 100, // Limit the number of events to avoid excessive response sizes
-      timeoutSeconds: Math.floor(timeoutMs / 1000)
-    }
 
     const { body: eventList } = await k8sApi.listNamespacedEvent(
       namespace(),
-      undefined,
       undefined,
       undefined,
       fieldSelector

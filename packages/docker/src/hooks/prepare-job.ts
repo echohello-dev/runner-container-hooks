@@ -82,7 +82,7 @@ async function getContainerDetails(containerId: string): Promise<string> {
     // Mask potentially sensitive environment variables
     if (sanitizedInfo.Config?.Env) {
       sanitizedInfo.Config.Env = sanitizedInfo.Config.Env.map((env: string) => {
-        const [key, ...valueParts] = env.split('=')
+        const [key] = env.split('=')
         if (
           key.includes('TOKEN') ||
           key.includes('SECRET') ||
