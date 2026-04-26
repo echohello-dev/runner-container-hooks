@@ -39,26 +39,30 @@ jobs:
 
       - run: mise run build
 
-  # test:
-  #   runs-on: ubuntu-latest
-  #   needs: lint-and-build
-  #
-  #   steps:
-  #     - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
-  #
-  #     - uses: actions/cache@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
-  #     with:
-  #       path: |
-  #         ~/.local/share/mise
-  #       key: ${{ runner.os }}-mise-${{ hashFiles('mise.toml') }}
-  #       restore-keys: |
-  #         ${{ runner.os }}-mise-
-  #
-  #     - uses: jdx/mise-action@146a28175021df8ca24f8ee1828cc2a60f980bd5 # v3.5.1
-  #     with:
-  #       env: false
-  #
-  #     - run: mise run test
+  test:
+    runs-on: ubuntu-latest
+    needs: lint-and-build
+
+    steps:
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - uses: actions/cache@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+        with:
+          path: |
+            ~/.local/share/mise
+          key: ${{ runner.os }}-mise-${{ hashFiles('mise.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-mise-
+
+      - uses: jdx/mise-action@146a28175021df8ca24f8ee1828cc2a60f980bd5 # v3.5.1
+        with:
+          env: false
+
+      - name: Setup Docker KinD cluster
+        run: |
+          curl -s https://docs.projectcontour.io/contour-latest/release-notes/shell/setup-kind.sh | bash -s -- --cluster-name runner-container-hooks --cluster-version 1.35.0
+
+      - run: mise run test
 
   build-and-push:
     runs-on: ubuntu-latest
