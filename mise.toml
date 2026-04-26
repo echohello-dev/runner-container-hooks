@@ -1,0 +1,32 @@
+[tasks.install]
+run = "npm ci && npm run bootstrap"
+description = "Install dependencies"
+
+[tasks.lint]
+run = "npm run lint"
+description = "Run linting"
+
+[tasks.format]
+run = "npm run format"
+description = "Format code"
+
+[tasks.format-check]
+run = "npm run format-check"
+description = "Check code formatting"
+
+[tasks.build]
+run = "npm run build-all"
+depends = ["install"]
+description = "Build all packages"
+
+[tasks."create:kind"]
+run = "cat ./kind.yaml | envsubst > ./packages/k8s/tests/test-kind.yaml && kind create cluster --name runner-container-hooks --config ./packages/k8s/tests/test-kind.yaml"
+description = "Create Kind cluster"
+
+[tasks."delete:kind"]
+run = "kind delete cluster --name runner-container-hooks"
+description = "Delete Kind cluster"
+
+[tasks.test]
+depends = ["install", "create:kind"]
+description = "Run tests"
