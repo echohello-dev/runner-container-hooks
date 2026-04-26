@@ -54,12 +54,68 @@ Multi-platform: `linux/amd64`, `linux/arm64`
 
 ## Using with Actions Runner Controller (ARC)
 
-### Option 1: Use Pre-built Image
+### Option 1: Use Pre-built Image with AutoscalingRunnerSet
 
-Reference the pre-built image in your ARC RunnerSet:
+The modern ARC uses `actions.github.com/v1alpha1` API (Runner Scale Sets):
 
 ```yaml
-apiVersion://actions.summerwind.net/v1alpha1
+apiVersion: actions.github.com/v1alpha1
+kind: AutoscalingRunnerSet
+metadata:
+  name: actions-runner-set
+  namespace: actions-runner
+spec:
+  runnerScaleSetName: actions-runner-set
+  maxRunners: 10
+  minRunners: 0
+  template:
+    spec:
+      containerSecurityContext:
+        allowPrivilegeEscalation: false
+      initContainers:
+        - name: hook-installer
+          image: ghcr.io/echohello-dev/runner-container-hooks:latest
+          command: ['sh', '-c', 'cp -r /opt/hooks/* /hooks/']
+          volumeMounts:
+            - name: runner-hooks
+              mountPath: /hooks
+      containers:
+        - name: runner
+          image: ghcr.io/actions/actions-runner:latest
+          command: ['/home/runner/run.sh']
+          env:
+            - name: ACTIONS_RUNNER_CONTAINER_HOOKS
+              value: /home/runner/k8s/index.js
+            - name: ACTIONS_RUNNER_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: ACTIONS_RUNNER_REQUIRE_JOB_CONTAINER
+              value: "true"
+          volumeMounts:
+            - name: runner-hooks
+              mountPath: /home/runner/k8s
+            - name: work
+              mountPath: /home/runner/_work
+      volumes:
+        - name: runner-hooks
+          emptyDir: {}
+        - name: work
+          ephemeral:
+            volumeClaimTemplate:
+              spec:
+                accessModes: ["ReadWriteOnce"]
+                resources:
+                  requests:
+                    storage: 10Gi
+```
+
+### Option 2: Use Pre-built Image with RunnerSet (Legacy)
+
+For the older `actions.summerwind.dev/v1alpha1` API:
+
+```yaml
+apiVersion: actions.summerwind.dev/v1alpha1
 kind: RunnerSet
 metadata:
   name: actions-runner-set
@@ -69,20 +125,25 @@ spec:
   runnerManagementURL: https://github.com/YOUR_ORG
   githubToken:
     secretName: github-token
-  image: ghcr.io/echohello-dev/runner-container-hooks:latest
-  imagePullPolicy: Always
-  env:
-    - name: ACTIONS_RUNNER_CONTAINER_HOOKS
-      value: /home/runner/k8s/index.js
-    - name: ACTIONS_RUNNER_POD_NAME
-      valueFrom:
-        fieldRef:
-          fieldPath: metadata.name
-    - name: ACTIONS_RUNNER_REQUIRE_JOB_CONTAINER
-      value: "true"
+  template:
+    spec:
+      repository: YOUR_REPO
+      containerMode:
+        type: dind
+      containerHooks:
+        path: /home/runner/k8s/index.js
+      image: ghcr.io/echohello-dev/runner-container-hooks:latest
+      imagePullPolicy: Always
+      env:
+        - name: ACTIONS_RUNNER_POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: ACTIONS_RUNNER_REQUIRE_JOB_CONTAINER
+          value: "true"
 ```
 
-### Option 2: Rebuild from Source with Customizations
+### Option 3: Rebuild from Source with Customizations
 
 If you need to customize the hooks or add your own tooling:
 
@@ -91,10 +152,12 @@ If you need to customize the hooks or add your own tooling:
 FROM ghcr.io/echohello-dev/runner-container-hooks:latest
 
 # Add your customizations here
+USER root
 RUN apt-get update && apt-get install -y \
     kubectl \
     helm \
     && rm -rf /var/lib/apt/lists/*
+USER runner
 
 # Override the hooks directory if needed
 COPY custom-hooks/ /home/runner/k8s/
@@ -111,13 +174,12 @@ docker build -t ghcr.io/YOUR_ORG/runner-container-hooks:custom .
 docker push ghcr.io/YOUR_ORG/runner-container-hooks:custom
 ```
 
-### Option 3: Add Hooks to Existing Runner Deployment
+### Option 4: Add Hooks to Existing RunnerDeployment
 
-If you already have ARC runners deployed and want to add these enhanced hooks:
+If you already have ARC runners deployed (using `actions.summerwind.dev/v1alpha1`) and want to add these enhanced hooks:
 
 ```yaml
-# patch-runners.yaml - apply with kubectl
-apiVersion: actions.summerwind.net/v1alpha1
+apiVersion: actions.summerwind.dev/v1alpha1
 kind: RunnerDeployment
 metadata:
   name: actions-runner
@@ -125,24 +187,24 @@ metadata:
 spec:
   template:
     spec:
+      env:
+        - name: ACTIONS_RUNNER_CONTAINER_HOOKS
+          value: /home/runner/k8s/index.js
+      initContainers:
+        - name: install-hooks
+          image: ghcr.io/echohello-dev/runner-container-hooks:latest
+          command: ['sh', '-c', 'mkdir -p /hooks && cp -r /opt/* /hooks/']
+          volumeMounts:
+            - name: runner-hooks
+              mountPath: /hooks
       containers:
         - name: runner
-          env:
-            - name: ACTIONS_RUNNER_CONTAINER_HOOKS
-              value: /home/runner/k8s/index.js
           volumeMounts:
             - name: runner-hooks
               mountPath: /home/runner/k8s
       volumes:
         - name: runner-hooks
           emptyDir: {}
-      initContainers:
-        - name: install-hooks
-          image: ghcr.io/echohello-dev/runner-container-hooks:latest
-          command: ['sh', '-c', 'cp -r /opt/hooks/* /hooks/']
-          volumeMounts:
-            - name: runner-hooks
-              mountPath: /hooks
 ```
 
 ## Packages
